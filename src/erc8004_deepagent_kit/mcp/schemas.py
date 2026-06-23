@@ -15,8 +15,12 @@ TOOL_NAMES = [
     "get_validation_status",
     "request_validation",
     "submit_validation_response",
-    # x402 Payments (gated by X402_ENABLED)
-    "x402_pay",
-    "x402_sell_settle",
-    "x402_balance",
+    # x402 Batching (gated by X402_ENABLED + X402_EXPOSE_BATCH_*)
+    "x402_batch_pay",
+    "x402_batch_sell_settle",
+    "x402_batch_balance",
+    # x402 Nanopayment Standalone (gated by X402_ENABLED + X402_EXPOSE_NANO_*)
+    "x402_nano_pay",
+    "x402_nano_sell_settle",
+    "x402_nano_balance",
 ]

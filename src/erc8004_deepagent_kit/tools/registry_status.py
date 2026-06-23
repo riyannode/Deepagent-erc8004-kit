@@ -28,10 +28,20 @@ def _get_erc8004_config_impl() -> dict:
         },
         "x402": {
             "enabled": cfg.x402_enabled,
-            "default_max_amount_usdc": cfg.x402_default_max_amount_usdc,
+            "mode": cfg.x402_mode,
+            "max_per_request_usdc": cfg.x402_max_per_request_usdc,
+            "max_daily_usdc": cfg.x402_max_daily_usdc,
+            "max_requests_per_day": cfg.x402_max_requests_per_day,
             "gateway_api_url": cfg.x402_gateway_api_url,
             "buyer_wallet_configured": bool(cfg.x402_default_buyer_wallet_id),
             "seller_wallet_configured": bool(cfg.x402_default_seller_wallet_address),
+            "expose": {
+                "balance": cfg.x402_expose_balance_to_agent,
+                "batch_buyer": cfg.x402_expose_batch_buyer_to_agent,
+                "batch_seller": cfg.x402_expose_batch_seller_to_agent,
+                "nano_buyer": cfg.x402_expose_nano_buyer_to_agent,
+                "nano_seller": cfg.x402_expose_nano_seller_to_agent,
+            },
         },
     }
 

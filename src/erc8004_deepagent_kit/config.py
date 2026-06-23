@@ -85,10 +85,22 @@ class KitConfig:
     agent_x402_support: bool
     # x402 payment settings
     x402_enabled: bool
+    x402_mode: str  # "batching" or "nano"
     x402_default_buyer_wallet_id: str | None
     x402_default_seller_wallet_address: str | None
-    x402_default_max_amount_usdc: str
+    x402_max_per_request_usdc: str
+    x402_max_daily_usdc: str
+    x402_max_requests_per_day: int
+    x402_allowed_hosts: str
+    x402_require_https: bool
     x402_gateway_api_url: str
+    x402_ledger_path: Path
+    # x402 agent exposure
+    x402_expose_balance_to_agent: bool
+    x402_expose_batch_buyer_to_agent: bool
+    x402_expose_batch_seller_to_agent: bool
+    x402_expose_nano_buyer_to_agent: bool
+    x402_expose_nano_seller_to_agent: bool
     deepagent_model: str
     enable_reputation_writes: bool
     enable_validation_writes: bool
@@ -179,10 +191,21 @@ def load_config(env_file: str | None = None) -> KitConfig:
         agent_supported_trust=supported_trust,
         agent_x402_support=_env_bool("AGENT_X402_SUPPORT", False),
         x402_enabled=_env_bool("X402_ENABLED", False),
+        x402_mode=(_env("X402_MODE", "batching") or "batching").lower(),
         x402_default_buyer_wallet_id=_env("X402_DEFAULT_BUYER_WALLET_ID"),
         x402_default_seller_wallet_address=_env("X402_DEFAULT_SELLER_WALLET_ADDRESS"),
-        x402_default_max_amount_usdc=_env("X402_DEFAULT_MAX_AMOUNT_USDC", "0.000001") or "0.000001",
+        x402_max_per_request_usdc=_env("X402_MAX_PER_REQUEST_USDC", "0.000001") or "0.000001",
+        x402_max_daily_usdc=_env("X402_MAX_DAILY_USDC", "0.01") or "0.01",
+        x402_max_requests_per_day=_env_int("X402_MAX_REQUESTS_PER_DAY", 100, min_value=1, max_value=10000),
+        x402_allowed_hosts=_env("X402_ALLOWED_HOSTS", "") or "",
+        x402_require_https=_env_bool("X402_REQUIRE_HTTPS", True),
         x402_gateway_api_url=_env("X402_GATEWAY_API_URL", "https://gateway-api-testnet.circle.com") or "https://gateway-api-testnet.circle.com",
+        x402_ledger_path=Path(_env("X402_LEDGER_PATH", "/data/x402_spend_ledger.sqlite3") or "/data/x402_spend_ledger.sqlite3"),
+        x402_expose_balance_to_agent=_env_bool("X402_EXPOSE_BALANCE_TO_AGENT", True),
+        x402_expose_batch_buyer_to_agent=_env_bool("X402_EXPOSE_BATCH_BUYER_TO_AGENT", False),
+        x402_expose_batch_seller_to_agent=_env_bool("X402_EXPOSE_BATCH_SELLER_TO_AGENT", False),
+        x402_expose_nano_buyer_to_agent=_env_bool("X402_EXPOSE_NANO_BUYER_TO_AGENT", False),
+        x402_expose_nano_seller_to_agent=_env_bool("X402_EXPOSE_NANO_SELLER_TO_AGENT", False),
         deepagent_model=_env("DEEPAGENT_MODEL", "anthropic:claude-sonnet-4-6") or "anthropic:claude-sonnet-4-6",
         enable_reputation_writes=_env_bool("ENABLE_REPUTATION_WRITES", False),
         enable_validation_writes=_env_bool("ENABLE_VALIDATION_WRITES", False),
