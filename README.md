@@ -249,6 +249,9 @@ erc8004-deepagent register  # No LLM needed
 | `BLOCKCHAIN` | `ARC-TESTNET` | Circle blockchain identifier |
 | `RPC_URL` | `https://rpc.drpc.testnet.arc.network` | Arc Testnet RPC |
 | `EXPLORER_URL` | `https://testnet.arcscan.app` | Block explorer base URL |
+| `IDENTITY_REGISTRY` | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | ERC-8004 IdentityRegistry contract |
+| `REPUTATION_REGISTRY` | `0x8004B663056A597Dffe9eCcC1965A193B7388713` | ERC-8004 ReputationRegistry contract |
+| `VALIDATION_REGISTRY` | `0x8004Cb1BF31DAf7788923b405b754f57acEB4272` | ERC-8004 ValidationRegistry contract |
 | `ERC8004_FROM_BLOCK` | `41338000` | Start block for on-chain event scan |
 | `EVENT_SCAN_BLOCK_RANGE` | `10000` | Blocks per `get_logs` call (max 10000) |
 | `VERIFY_CHAIN_ID` | `true` | Verify RPC chain ID on startup |
