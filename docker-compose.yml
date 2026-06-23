@@ -1,0 +1,8 @@
+services:
+  erc8004-live:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+    command: ["doctor"]
