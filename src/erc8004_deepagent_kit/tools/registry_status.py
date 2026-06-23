@@ -26,6 +26,13 @@ def _get_erc8004_config_impl() -> dict:
             "reputation": cfg.enable_reputation_writes,
             "validation": cfg.enable_validation_writes,
         },
+        "x402": {
+            "enabled": cfg.x402_enabled,
+            "default_max_amount_usdc": cfg.x402_default_max_amount_usdc,
+            "gateway_api_url": cfg.x402_gateway_api_url,
+            "buyer_wallet_configured": bool(cfg.x402_default_buyer_wallet_id),
+            "seller_wallet_configured": bool(cfg.x402_default_seller_wallet_address),
+        },
     }
 
 

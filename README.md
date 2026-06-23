@@ -154,13 +154,66 @@ erc8004-deepagent agent-register
 
 `CIRCLE_EXECUTION_STATE_DIR=/data/circle_executions` stores non-secret Circle execution metadata: transaction id, txHash if available, and state. This helps recover from ambiguous API timeout without immediately submitting a duplicate registration.
 
+## x402 Payment Tools
+
+When `X402_ENABLED=true`, the Deep Agent gets three x402 payment tools:
+
+```bash
+# Buyer: pay for an x402-protected resource
+x402_pay(url, wallet_id, max_amount_usdc="0.000001")
+
+# Seller: verify + settle an incoming x402 payment
+x402_sell_settle(payment_signature, pay_to, amount_atomic="1")
+
+# Balance: check Gateway USDC balance
+x402_balance(wallet_address)
+```
+
+The buyer tool handles the full 402 challenge-response flow:
+1. Hits the endpoint (no payment)
+2. Decodes the 402 `PAYMENT-REQUIRED` challenge
+3. Signs via Circle DCW `signTypedData` (no raw private keys)
+4. Retries with the `payment-signature` header
+
+Default max payment: **$0.000001 USDC** (smallest economic unit on Arc).
+
+### x402 Environment Variables
+
+```bash
+X402_ENABLED=true                              # Enable x402 tools
+X402_DEFAULT_BUYER_WALLET_ID=<dcw-wallet-id>   # Circle DCW wallet ID for buyer
+X402_DEFAULT_SELLER_WALLET_ADDRESS=0x...        # EVM address for seller
+X402_DEFAULT_MAX_AMOUNT_USDC=0.000001           # Max per-request payment
+X402_GATEWAY_API_URL=https://gateway-api-testnet.circle.com
+```
+
+### Customizing for Your Use Case
+
+This SDK is designed for developers to customize. Examples:
+
+```python
+# Override max amount for higher-value endpoints
+result = x402_pay.invoke({
+    "url": "https://api.example.com/premium",
+    "wallet_id": "your-dcw-wallet-id",
+    "max_amount_usdc": "0.01",  # $0.01 max
+})
+
+# Check if wallet has enough Gateway balance before paying
+balance = x402_balance.invoke({"wallet_address": "0x..."})
+
+# Seller: verify a payment you received
+result = x402_sell_settle.invoke({
+    "payment_signature": "<base64 from PAYMENT-SIGNATURE header>",
+    "pay_to": "0xYourSellerAddress",
+    "amount_atomic": "1",  # $0.000001
+})
+```
+
 ## Disabled future plugins
 
-These exist only as placeholders:
+ERC-8183 exists only as a placeholder:
 
 ```txt
 plugins/erc8183
-plugins/x402
 ```
-
-They intentionally do not execute payments, escrows, Gateway flows, or x402 headers in v1.

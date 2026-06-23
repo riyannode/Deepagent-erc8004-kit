@@ -83,6 +83,12 @@ class KitConfig:
     agent_services: list[dict[str, Any]]
     agent_supported_trust: list[str]
     agent_x402_support: bool
+    # x402 payment settings
+    x402_enabled: bool
+    x402_default_buyer_wallet_id: str | None
+    x402_default_seller_wallet_address: str | None
+    x402_default_max_amount_usdc: str
+    x402_gateway_api_url: str
     deepagent_model: str
     enable_reputation_writes: bool
     enable_validation_writes: bool
@@ -172,6 +178,11 @@ def load_config(env_file: str | None = None) -> KitConfig:
         agent_services=agent_services,
         agent_supported_trust=supported_trust,
         agent_x402_support=_env_bool("AGENT_X402_SUPPORT", False),
+        x402_enabled=_env_bool("X402_ENABLED", False),
+        x402_default_buyer_wallet_id=_env("X402_DEFAULT_BUYER_WALLET_ID"),
+        x402_default_seller_wallet_address=_env("X402_DEFAULT_SELLER_WALLET_ADDRESS"),
+        x402_default_max_amount_usdc=_env("X402_DEFAULT_MAX_AMOUNT_USDC", "0.000001") or "0.000001",
+        x402_gateway_api_url=_env("X402_GATEWAY_API_URL", "https://gateway-api-testnet.circle.com") or "https://gateway-api-testnet.circle.com",
         deepagent_model=_env("DEEPAGENT_MODEL", "anthropic:claude-sonnet-4-6") or "anthropic:claude-sonnet-4-6",
         enable_reputation_writes=_env_bool("ENABLE_REPUTATION_WRITES", False),
         enable_validation_writes=_env_bool("ENABLE_VALIDATION_WRITES", False),

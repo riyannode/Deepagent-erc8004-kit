@@ -2,11 +2,13 @@
   "name": "erc8004-deepagent-kit-circle-sidecar",
   "private": true,
   "type": "module",
-  "description": "Node sidecar using the official Circle Developer-Controlled Wallets SDK for contract execution.",
+  "description": "Node sidecar for Circle DCW contract execution and x402 payments.",
   "scripts": {
-    "circle:execute": "node scripts/circle_execute_contract.mjs"
+    "circle:execute": "node scripts/circle_execute_contract.mjs",
+    "x402:pay": "node scripts/x402_payment.mjs"
   },
   "dependencies": {
-    "@circle-fin/developer-controlled-wallets": "10.6.0"
+    "@circle-fin/developer-controlled-wallets": "10.6.0",
+    "@circle-fin/x402-batching": "^3.2.0"
   }
 }
