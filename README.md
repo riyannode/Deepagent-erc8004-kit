@@ -107,6 +107,68 @@ A recent block = faster scan. An old block = more RPC calls but still correct.
 
 Default: `41338000` (registry first Transfer event ~41338604).
 
+### Agent Metadata Format
+
+ERC-8004 stores a metadata URI on-chain as the `tokenURI` of the identity NFT. The JSON fields at that URI are **application-defined** — there is no enforced schema from Arc or Circle. This kit uses a richer format than the [Arc quickstart default](https://docs.arc.io/arc/tutorials/register-your-first-ai-agent) to support agent-to-agent discovery, x402 payment negotiation, and trust mechanisms.
+
+**This kit's metadata format:**
+
+```json
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "My Deep Agent",
+  "description": "Agent description",
+  "image": "https://example.com/agent.png",
+  "services": [
+    { "name": "discovery", "endpoint": "https://my-agent.example.com/api/discover" }
+  ],
+  "x402Support": true,
+  "active": true,
+  "registrations": [],
+  "supportedTrust": ["reputation", "validation"]
+}
+```
+
+**Arc quickstart default (simpler):**
+
+```json
+{
+  "name": "DeFi Arbitrage Agent v1.0",
+  "description": "Autonomous trading agent",
+  "image": "ipfs://QmAgentAvatarHash...",
+  "agent_type": "trading",
+  "capabilities": ["arbitrage_detection"],
+  "version": "1.0.0"
+}
+```
+
+**Why this kit's format is richer:**
+
+| Field | Purpose |
+|-------|---------|
+| `type` | Identifies the metadata convention (`registration-v1`). Lets consumers distinguish structured metadata from arbitrary JSON. |
+| `services[]` | Agent-to-agent discovery. Each service has a `name` and `endpoint` — other agents can call these to discover capabilities. |
+| `x402Support` | Declares whether this agent accepts x402 payments. Buyers can check this before attempting a paid call. |
+| `active` | Whether the agent is currently online. Can be toggled without re-registering. |
+| `registrations[]` | Cross-chain registrations (future: same agent on multiple chains). |
+| `supportedTrust` | Which trust mechanisms the agent supports (`reputation`, `validation`). |
+
+The Arc quickstart format (`agent_type`, `capabilities`, `version`) is also valid — use whichever fits your use case. The only requirement from ERC-8004 is that the URI resolves to valid JSON.
+
+### Data URI vs IPFS
+
+This kit stores metadata as a `data:application/json;base64,...` URI (self-contained, no external dependency). The [Arc quickstart](https://docs.arc.io/arc/tutorials/register-your-first-ai-agent) recommends IPFS.
+
+| | Data URI (this kit) | IPFS (Arc quickstart) |
+|---|---------------------|----------------------|
+| **Dependency** | None — fully self-contained | Requires IPFS pinning service (Pinata, NFT.Storage, etc.) |
+| **Size limit** | 32KB (enforced by SDK) | No practical limit |
+| **Gas cost** | Higher — data embedded in tx calldata | Lower — only CID stored on-chain |
+| **Persistence** | Lives on-chain forever | Depends on pinning service |
+| **Best for** | Hackathons, demos, small metadata | Production, large metadata, decentralized storage |
+
+To use IPFS instead, upload your metadata JSON to [Pinata](https://pinata.cloud/), [NFT.Storage](https://nft.storage/), or [Web3.Storage](https://web3.storage/), then pass the `ipfs://...` URI to the registration call. The on-chain contract doesn't care — any valid URI works.
+
 ### What `register_identity_once` does NOT do
 
 - Does NOT submit a second transaction if identity already exists.
