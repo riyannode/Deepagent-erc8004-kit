@@ -291,7 +291,7 @@ When `X402_ENABLED=false`, no x402 tools are exposed at all.
 
 ## LangChain Customization
 
-This SDK is built on **LangChain / Deep Agents**. You can modify anything:
+This SDK is built with **LangChain / Deep Agents**. You can modify anything:
 
 **Change the LLM:**
 ```python
