@@ -491,6 +491,26 @@ Docker (optional)
 
 ---
 
+## Current Validation Status
+
+Production-hardening blockers have been fixed and live validation passed.
+
+ERC-8004 identity registration has been validated on Arc Testnet. The second registration run returned `already_registered` and created no new Circle transaction.
+
+x402 batching and nano doctor checks passed. Live x402 payment execution still requires a real allowlisted x402 endpoint.
+
+```txt
+✅ python -m compileall -q src
+✅ npm ci --omit=dev
+✅ erc8004-deepagent doctor               — 12/12
+✅ erc8004-deepagent status                — already_registered, agent_id=840724
+✅ erc8004-deepagent register (2nd run)    — already_registered, no new tx
+✅ X402_ENABLED=true X402_MODE=batching    — doctor 17/17
+✅ X402_ENABLED=true X402_MODE=nano        — doctor 16/16
+```
+
+---
+
 ## License
 
 MIT
