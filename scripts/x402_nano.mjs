@@ -9,7 +9,7 @@
  */
 
 import { createRequire } from "node:module";
-import { randomBytes } from "node:crypto";
+// randomBytes removed — BatchEvmScheme handles nonce internally
 const require = createRequire(import.meta.url);
 
 const TX_HASH_RE = /^0x[a-fA-F0-9]{64}$/;
@@ -114,47 +114,59 @@ async function pay(input) {
   const addr = w?.data?.wallet?.address;
   if (!addr) throw new Error(`wallet not found: ${walletId}`);
 
-  const extra = accept.extra || {};
-  const now = Math.floor(Date.now() / 1000);
-  const nonce = "0x" + randomBytes(32).toString("hex");
-  const authorization = {
-    from: addr.toLowerCase(), to: accept.payTo, value: amountAtomic,
-    validAfter: String(now - 60), validBefore: String(now + (accept.maxTimeoutSeconds || 604900)), nonce,
-  };
-  const domain = {
-    name: extra.name || "GatewayWalletBatched", version: extra.version || "1",
-    chainId: 5042002, verifyingContract: extra.verifyingContract || "0x0077777d7EBA4688BDeF3E311b846F25870A19B9",
-  };
-  const types = {
-    EIP712Domain: [
-      { name: "name", type: "string" }, { name: "version", type: "string" },
-      { name: "chainId", type: "uint256" }, { name: "verifyingContract", type: "address" },
-    ],
-    TransferWithAuthorization: [
-      { name: "from", type: "address" }, { name: "to", type: "address" },
-      { name: "value", type: "uint256" }, { name: "validAfter", type: "uint256" },
-      { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" },
-    ],
+  // ── Checksum address (BatchEvmScheme.signAuthorization calls getAddress()) ──
+  const { getAddress } = require("viem");
+  let checksummedAddr;
+  try { checksummedAddr = getAddress(addr); } catch { throw new Error(`wallet address is not valid EVM: ${addr}`); }
+
+  // ── BatchEvmScheme with DCW signer adapter ──────────────
+  const { BatchEvmScheme } = require("@circle-fin/x402-batching/client");
+
+  const dcwSigner = {
+    address: checksummedAddr,
+    signTypedData: async (params) => {
+      const signResult = await circleClient.signTypedData({
+        walletId,
+        data: JSON.stringify(params, (k, v) => typeof v === "bigint" ? v.toString() : v),
+      });
+      const sig = signResult?.data?.signature || signResult?.data?.signatures?.[0];
+      if (!sig) throw new Error("DCW signTypedData returned no signature");
+      return sig;
+    },
   };
 
-  const signResult = await circleClient.signTypedData({
-    walletId,
-    data: JSON.stringify({ types, primaryType: "TransferWithAuthorization", domain, message: authorization },
-      (k, v) => typeof v === "bigint" ? v.toString() : v),
-  });
-  const sig = signResult?.data?.signature || signResult?.data?.signatures?.[0];
-  if (!sig) throw new Error("no signature from DCW");
+  const scheme = new BatchEvmScheme(dcwSigner);
 
-  const payload = {
-    x402Version: challenge.x402Version || 2,
-    payload: { authorization, signature: sig },
+  let paymentPayload;
+  try {
+    paymentPayload = await scheme.createPaymentPayload(
+      challenge.x402Version || 2,
+      {
+        scheme: accept.scheme,
+        network: accept.network,
+        asset: accept.asset,
+        amount: accept.amount,
+        payTo: accept.payTo,
+        maxTimeoutSeconds: accept.maxTimeoutSeconds || 604900,
+        extra: accept.extra,
+      }
+    );
+  } catch (e) {
+    throw new Error(`BatchEvmScheme.createPaymentPayload failed: ${e?.message || e}`);
+  }
+
+  // BatchEvmScheme returns {x402Version, payload} — add resource + accepted for Gateway verify
+  const fullPayload = {
+    ...paymentPayload,
     resource: challenge.resource || url,
     accepted: accept,
   };
 
+  const paymentSignatureValue = Buffer.from(JSON.stringify(fullPayload)).toString("base64");
+
   const retryOpts = {
     method: method || "GET",
-    headers: { "Content-Type": "application/json", "payment-signature": Buffer.from(JSON.stringify(payload)).toString("base64") },
+    headers: { "Content-Type": "application/json", "payment-signature": paymentSignatureValue },
   };
   if (jsonBody && SEND_BODY_METHODS.has((method || "GET").toUpperCase())) {
     retryOpts.body = JSON.stringify(jsonBody);
