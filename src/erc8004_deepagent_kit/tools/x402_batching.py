@@ -211,9 +211,13 @@ def x402_batch_sell_settle(payment_signature: str, resource: str, request_id: st
     # Validate inputs before passing to sidecar
     _validate_seller_inputs(payment_signature, resource, request_id)
 
-    # Extract actual amount from payment payload instead of hardcoding "1"
+    # Extract actual amount from payment payload — fail closed if missing
     extracted_amount = _extract_amount_from_payment_payload(payment_signature)
-    amount_atomic = extracted_amount or "1"
+    if not extracted_amount:
+        raise ValueError("payment_signature missing authorization value/accepted amount — cannot determine payment amount")
+    if not extracted_amount.isdigit() or int(extracted_amount) <= 0:
+        raise ValueError(f"invalid amount_atomic in payment payload: {extracted_amount!r}")
+    amount_atomic = extracted_amount
 
     ledger = X402Ledger()
 
@@ -276,14 +280,15 @@ def gateway_deposit(amount_usdc: str) -> dict:
     cfg = load_config()
     wallet = get_configured_wallet()
 
-    # Convert USDC display units to atomic (6 decimals)
+    # Convert USDC display units to atomic (6 decimals) — pure Decimal, no float
+    from decimal import Decimal, InvalidOperation
     try:
-        amount_float = float(amount_usdc)
-    except (ValueError, TypeError):
-        raise ValueError(f"Invalid amount_usdc: {amount_usdc!r}")
-    if amount_float <= 0:
+        amount_dec = Decimal(amount_usdc)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"Invalid amount_usdc: {amount_usdc!r}") from exc
+    if amount_dec <= 0:
         raise ValueError("amount_usdc must be positive")
-    if amount_float > 100:
+    if amount_dec > Decimal("100"):
         raise ValueError("amount_usdc exceeds safety limit (100 USDC)")
 
     amount_atomic = usdc_to_atomic(amount_usdc)

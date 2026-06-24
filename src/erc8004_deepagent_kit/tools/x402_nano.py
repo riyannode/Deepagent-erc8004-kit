@@ -190,9 +190,13 @@ def x402_nano_sell_settle(payment_signature: str, resource: str, request_id: str
     # Validate inputs before passing to sidecar
     _validate_seller_inputs(payment_signature, resource, request_id)
 
-    # Extract actual amount from payment payload instead of hardcoding "1"
+    # Extract actual amount from payment payload — fail closed if missing
     extracted_amount = _extract_amount_from_payment_payload(payment_signature)
-    amount_atomic = extracted_amount or "1"
+    if not extracted_amount:
+        raise ValueError("payment_signature missing authorization value/accepted amount — cannot determine payment amount")
+    if not extracted_amount.isdigit() or int(extracted_amount) <= 0:
+        raise ValueError(f"invalid amount_atomic in payment payload: {extracted_amount!r}")
+    amount_atomic = extracted_amount
 
     ledger = X402Ledger()
     # F10: Use full payment signature hash (not truncated)
