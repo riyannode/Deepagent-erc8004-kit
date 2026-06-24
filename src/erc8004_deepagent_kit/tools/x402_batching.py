@@ -31,6 +31,37 @@ ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _MAX_PAYMENT_SIGNATURE_BYTES = 8192  # base64-encoded x402 payload
 _MAX_REQUEST_ID_LEN = 128
 _MAX_RESOURCE_LEN = 2048
+_MAX_JSON_BODY_BYTES = 64 * 1024  # 64KB
+_SEND_BODY_METHODS = {"POST", "PUT", "PATCH"}
+
+
+def _canonical_json(obj: object) -> str:
+    """Canonical JSON: sorted keys, compact, no whitespace. Matches JS canonicalize()."""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _body_hash(json_body: dict | None) -> str:
+    """SHA-256 hash (16 hex chars) of canonical JSON body. Empty string if no body."""
+    if json_body is None:
+        return ""
+    return hashlib.sha256(_canonical_json(json_body).encode()).hexdigest()[:16]
+
+
+def _validate_json_body(json_body: dict | None, method: str) -> dict | None:
+    """Validate json_body for buyer tools. Returns cleaned body or None."""
+    if json_body is None:
+        return None
+    if not isinstance(json_body, dict):
+        raise ValueError("json_body must be a dict")
+    if method.upper() not in _SEND_BODY_METHODS:
+        return None  # ignore body for GET/HEAD
+    try:
+        serialized = _canonical_json(json_body)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"json_body is not JSON serializable: {exc}") from exc
+    if len(serialized.encode()) > _MAX_JSON_BODY_BYTES:
+        raise ValueError(f"json_body exceeds {_MAX_JSON_BODY_BYTES} bytes when serialized")
+    return json_body
 
 
 def _validate_seller_inputs(payment_signature: str, resource: str, request_id: str) -> None:
@@ -126,17 +157,27 @@ def _run(payload: dict, timeout: int = 120) -> dict:
 
 
 @tool
-def x402_batch_pay(url: str, method: str = "GET") -> dict:
+def x402_batch_pay(url: str, method: str = "GET", json_body: dict | None = None) -> dict:
     """Buyer: pay for a Circle x402-batching protected endpoint.
 
     Uses configured X402_DEFAULT_BUYER_WALLET_ID from env.
     Enforces allowlist, max per request, daily budget, and request count.
     Does not accept wallet_id from the LLM.
+
+    Args:
+        url: The endpoint URL to pay for.
+        method: HTTP method (GET, POST, PUT, PATCH, HEAD). Default GET.
+        json_body: Optional JSON body for POST/PUT/PATCH requests.
+                   Must be JSON serializable. Max 64KB serialized.
+                   Ignored for GET/HEAD.
     """
     cfg = load_config()
 
     # Policy checks BEFORE any HTTP request
     assert_url_allowed(url)
+
+    # Validate json_body
+    validated_body = _validate_json_body(json_body, method)
 
     buyer_wallet_id = cfg.x402_default_buyer_wallet_id
     if not buyer_wallet_id:
@@ -144,10 +185,14 @@ def x402_batch_pay(url: str, method: str = "GET") -> dict:
 
     agent_key = cfg.agent_key
 
+    # Compute body hash for request_id (empty string if no body)
+    body_hash = _body_hash(json_body)
+
     # Phase 1: prefetch the 402 challenge (no signing yet)
-    prefetch_result = _run({
-        "mode": "prefetch", "url": url, "method": method,
-    })
+    prefetch_payload = {"mode": "prefetch", "url": url, "method": method}
+    if validated_body is not None:
+        prefetch_payload["jsonBody"] = validated_body
+    prefetch_result = _run(prefetch_payload)
 
     if not prefetch_result.get("paymentRequired"):
         # No payment needed — return the result directly
@@ -168,7 +213,7 @@ def x402_batch_pay(url: str, method: str = "GET") -> dict:
 
     host = urlparse(url).hostname or ""
     resource = url
-    request_id = hashlib.sha256(f"batch:{url}:{method}:{agent_key}".encode()).hexdigest()[:16]
+    request_id = hashlib.sha256(f"batch:{url}:{method}:{body_hash}:{agent_key}".encode()).hexdigest()[:16]
 
     # F4: Atomic check+insert to prevent race condition
     ledger = X402Ledger()
@@ -180,11 +225,14 @@ def x402_batch_pay(url: str, method: str = "GET") -> dict:
 
     try:
         # Phase 3: sign and retry with pre-validated challenge
-        result = _run({
+        pay_payload = {
             "mode": "pay", "url": url, "walletId": buyer_wallet_id,
             "maxAmountUsdc": cfg.x402_max_per_request_usdc, "method": method,
             "challenge": challenge,
-        })
+        }
+        if validated_body is not None:
+            pay_payload["jsonBody"] = validated_body
+        result = _run(pay_payload)
         ledger.update_status(row_id, "success")
         result["ledger_row_id"] = row_id
         result["request_id"] = request_id

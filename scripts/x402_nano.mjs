@@ -14,6 +14,14 @@ const require = createRequire(import.meta.url);
 
 const TX_HASH_RE = /^0x[a-fA-F0-9]{64}$/;
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+const SEND_BODY_METHODS = new Set(["POST", "PUT", "PATCH"]);
+
+/** Canonical JSON: sorted keys recursively, compact. Matches Python _canonical_json(). */
+function canonicalize(obj) {
+  if (obj === null || typeof obj !== "object") return JSON.stringify(obj);
+  if (Array.isArray(obj)) return "[" + obj.map(canonicalize).join(",") + "]";
+  return "{" + Object.keys(obj).sort().map(k => JSON.stringify(k) + ":" + canonicalize(obj[k])).join(",") + "}";
+}
 
 function readStdin() {
   return new Promise((resolve, reject) => {
@@ -61,10 +69,14 @@ async function checkBalance(addr) {
 
 /** Prefetch: fetch URL, get 402 challenge, return it without signing. */
 async function prefetch(input) {
-  const { url, method } = input;
+  const { url, method, jsonBody } = input;
   if (!url) throw new Error("url required");
 
-  const resp = await fetch(url, { method: method || "GET", headers: { "Content-Type": "application/json" } });
+  const fetchOpts = { method: method || "GET", headers: { "Content-Type": "application/json" } };
+  if (jsonBody && SEND_BODY_METHODS.has((method || "GET").toUpperCase())) {
+    fetchOpts.body = JSON.stringify(jsonBody);
+  }
+  const resp = await fetch(url, fetchOpts);
   if (resp.status !== 402) {
     const body = await readBodyLimited(resp);
     return ok({ mode: "prefetch", paymentRequired: false, httpStatus: resp.status, body: body.substring(0, 4096) });
@@ -79,7 +91,7 @@ async function prefetch(input) {
 }
 
 async function pay(input) {
-  const { url, walletId, maxAmountUsdc, method, challenge: preFetched } = input;
+  const { url, walletId, maxAmountUsdc, method, challenge: preFetched, jsonBody } = input;
   if (!url) throw new Error("url required");
   if (!walletId) throw new Error("walletId required");
 
@@ -140,10 +152,14 @@ async function pay(input) {
     accepted: accept,
   };
 
-  const retry = await fetch(url, {
+  const retryOpts = {
     method: method || "GET",
     headers: { "Content-Type": "application/json", "payment-signature": Buffer.from(JSON.stringify(payload)).toString("base64") },
-  });
+  };
+  if (jsonBody && SEND_BODY_METHODS.has((method || "GET").toUpperCase())) {
+    retryOpts.body = JSON.stringify(jsonBody);
+  }
+  const retry = await fetch(url, retryOpts);
   const body = await retry.text();
   let data; try { data = JSON.parse(body); } catch { data = body; }
 
