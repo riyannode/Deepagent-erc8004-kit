@@ -153,7 +153,7 @@ This kit stores metadata as a `data:application/json;base64,...` URI (self-conta
 | **Gas cost** | Higher — data embedded in tx calldata | Lower — only CID stored on-chain |
 | **Persistence** | Lives on-chain forever | Depends on pinning service |
 
-Switch to IPF in Production, for large metadata, and decentralized storage |
+Switch to IPFS in Production, for large metadata, and decentralized storage 
 
 To use IPFS instead, upload your metadata JSON to [Pinata](https://pinata.cloud/), [NFT.Storage](https://nft.storage/), or [Web3.Storage](https://web3.storage/), then pass the `ipfs://...` URI to the registration call. The on-chain contract doesn't care — any valid URI works.
 
