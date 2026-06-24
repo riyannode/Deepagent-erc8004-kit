@@ -10,11 +10,14 @@ def _now() -> str:
 
 
 class ReputationStore:
-    def __init__(self, path: Path, chain_id: int | str | None = None, registry: str | None = None):
+    def __init__(self, path: Path, chain_id: int | str, registry: str):
+        if chain_id is None or str(chain_id).strip() == "":
+            raise ValueError("chain_id is required for ReputationStore scope")
+        if not registry or not str(registry).strip():
+            raise ValueError("registry is required for ReputationStore scope")
         base_path = Path(path)
-        if chain_id is not None and registry:
-            suffix = f"chain{chain_id}-{registry.lower()}"
-            base_path = base_path.with_name(f"{base_path.stem}-{suffix}{base_path.suffix}")
+        suffix = f"chain{chain_id}-{str(registry).lower()}"
+        base_path = base_path.with_name(f"{base_path.stem}-{suffix}{base_path.suffix}")
         self.path = base_path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._init()
