@@ -556,25 +556,25 @@ erc8004-deepagent doctor
 ## Live Validation Checklist
 
 ```txt
-[ ] python -m compileall -q src       — all files compile
-[ ] npm ci --omit=dev                 — node dependencies installed
-[ ] erc8004-deepagent config          — prints config without secrets
-[ ] erc8004-deepagent doctor          — all checks pass, ok=true
-[ ] erc8004-deepagent doctor          — chain_id=5042002 verified
-[ ] erc8004-deepagent doctor          — bytecode at IdentityRegistry verified
-[ ] erc8004-deepagent status          — works with configured DCW wallet
-[ ] erc8004-deepagent register        — first register: status=registered, real tx_hash
-[ ] tx on https://testnet.arcscan.app — targets IdentityRegistry contract
-[ ] tx method is register(string)     — ERC-721 Transfer mint to DCW wallet
-[ ] SQLite has exactly one identity row
-[ ] erc8004-deepagent register        — second register: already_registered (NO new tx)
+[x] python -m compileall -q src       — all files compile
+[x] npm ci --omit=dev                 — node dependencies installed
+[x] erc8004-deepagent config          — prints config without secrets
+[x] erc8004-deepagent doctor          — all checks pass (except .env credentials)
+[x] erc8004-deepagent doctor          — chain_id=5042002 verified
+[x] erc8004-deepagent doctor          — bytecode at IdentityRegistry verified
+[ ] erc8004-deepagent status          — works with configured DCW wallet (needs .env)
+[ ] erc8004-deepagent register        — first register: status=registered, real tx_hash (needs .env)
+[ ] tx on https://testnet.arcscan.app — targets IdentityRegistry contract (needs .env)
+[ ] tx method is register(string)     — ERC-721 Transfer mint to DCW wallet (needs .env)
+[ ] SQLite has exactly one identity row (needs .env)
+[ ] erc8004-deepagent register        — second register: already_registered (NO new tx) (needs .env)
 [ ] if X402_ENABLED=true:
-    [ ] doctor checks sidecar files exist
-    [ ] doctor checks @circle-fin/x402-batching importable (if batching mode)
-    [ ] doctor checks X402_GATEWAY_API_URL configured
-    [ ] doctor checks X402_LEDGER_PATH writable
-    [ ] if buyer exposed: doctor requires X402_DEFAULT_BUYER_WALLET_ID + X402_ALLOWED_HOSTS
-    [ ] if seller exposed: doctor requires X402_DEFAULT_SELLER_WALLET_ADDRESS
+    [x] doctor checks sidecar files exist
+    [x] doctor checks @circle-fin/x402-batching importable (if batching mode)
+    [x] doctor checks X402_GATEWAY_API_URL configured
+    [x] doctor checks X402_LEDGER_PATH writable
+    [ ] if buyer exposed: doctor requires X402_DEFAULT_BUYER_WALLET_ID + X402_ALLOWED_HOSTS (needs .env)
+    [ ] if seller exposed: doctor requires X402_DEFAULT_SELLER_WALLET_ADDRESS (needs .env)
 ```
 
 ---
