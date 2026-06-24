@@ -27,6 +27,17 @@ class ReputationStore:
     def _init(self) -> None:
         with self._conn() as db:
             db.executescript(SCHEMA)
+            for statement in (
+                "ALTER TABLE reputation_feedback ADD COLUMN revoked_tx_hash TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE reputation_feedback ADD COLUMN revoked_block_number INTEGER",
+                "ALTER TABLE reputation_feedback ADD COLUMN revoked_log_index INTEGER",
+                "ALTER TABLE reputation_feedback ADD COLUMN revoked_at TEXT NOT NULL DEFAULT ''",
+            ):
+                try:
+                    db.execute(statement)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
 
     def upsert_feedback(self, row: dict) -> None:
         data = dict(row)
@@ -42,8 +53,8 @@ class ReputationStore:
     def mark_revoked(self, agent_id: str, client_address: str, feedback_index: int, tx_hash: str, block_number: int, log_index: int) -> None:
         with self._conn() as db:
             db.execute(
-                "UPDATE reputation_feedback SET is_revoked=1, tx_hash=?, block_number=?, log_index=? WHERE agent_id=? AND client_address=? AND feedback_index=?",
-                (tx_hash, int(block_number), int(log_index), str(agent_id), client_address, int(feedback_index)),
+                "UPDATE reputation_feedback SET is_revoked=1, revoked_tx_hash=?, revoked_block_number=?, revoked_log_index=?, revoked_at=? WHERE agent_id=? AND client_address=? AND feedback_index=?",
+                (tx_hash, int(block_number), int(log_index), _now(), str(agent_id), client_address, int(feedback_index)),
             )
 
     def insert_response(self, row: dict) -> None:
@@ -51,7 +62,7 @@ class ReputationStore:
         data.setdefault("created_at", _now())
         with self._conn() as db:
             db.execute(
-                """INSERT INTO reputation_responses(agent_id,client_address,feedback_index,responder,response_uri,response_hash,tx_hash,block_number,log_index,created_at)
+                """INSERT OR IGNORE INTO reputation_responses(agent_id,client_address,feedback_index,responder,response_uri,response_hash,tx_hash,block_number,log_index,created_at)
                 VALUES(:agent_id,:client_address,:feedback_index,:responder,:response_uri,:response_hash,:tx_hash,:block_number,:log_index,:created_at)""",
                 data,
             )
@@ -95,6 +106,14 @@ class ReputationStore:
         with self._conn() as db:
             db.execute("INSERT INTO erc8004_indexer_state(name,last_block,updated_at) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET last_block=excluded.last_block, updated_at=excluded.updated_at", (name, int(last_block), _now()))
 
+    def advance_state(self, name: str, last_block: int) -> None:
+        with self._conn() as db:
+            db.execute(
+                """INSERT INTO erc8004_indexer_state(name,last_block,updated_at) VALUES(?,?,?)
+                ON CONFLICT(name) DO UPDATE SET last_block=max(erc8004_indexer_state.last_block, excluded.last_block), updated_at=excluded.updated_at""",
+                (name, int(last_block), _now()),
+            )
+
     def status(self, latest_block: int | None = None) -> dict:
         last = self.get_state("reputation")
         out = {"ok": True, "state": "ready" if last is not None else "indexer_required", "last_indexed_block": last, "feedback_available": last is not None, "store_path": str(self.path)}
@@ -104,11 +123,13 @@ class ReputationStore:
 
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS reputation_feedback (agent_id TEXT NOT NULL, client_address TEXT NOT NULL, feedback_index INTEGER NOT NULL, value TEXT NOT NULL, value_decimals INTEGER NOT NULL, tag1 TEXT NOT NULL DEFAULT '', tag2 TEXT NOT NULL DEFAULT '', endpoint TEXT NOT NULL DEFAULT '', feedback_uri TEXT NOT NULL DEFAULT '', feedback_hash TEXT NOT NULL DEFAULT '', is_revoked INTEGER NOT NULL DEFAULT 0, tx_hash TEXT NOT NULL, block_number INTEGER NOT NULL, log_index INTEGER NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (agent_id, client_address, feedback_index));
-CREATE TABLE IF NOT EXISTS reputation_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, client_address TEXT NOT NULL, feedback_index INTEGER NOT NULL, responder TEXT NOT NULL, response_uri TEXT NOT NULL DEFAULT '', response_hash TEXT NOT NULL DEFAULT '', tx_hash TEXT NOT NULL, block_number INTEGER NOT NULL, log_index INTEGER NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS reputation_feedback (agent_id TEXT NOT NULL, client_address TEXT NOT NULL, feedback_index INTEGER NOT NULL, value TEXT NOT NULL, value_decimals INTEGER NOT NULL, tag1 TEXT NOT NULL DEFAULT '', tag2 TEXT NOT NULL DEFAULT '', endpoint TEXT NOT NULL DEFAULT '', feedback_uri TEXT NOT NULL DEFAULT '', feedback_hash TEXT NOT NULL DEFAULT '', is_revoked INTEGER NOT NULL DEFAULT 0, tx_hash TEXT NOT NULL, block_number INTEGER NOT NULL, log_index INTEGER NOT NULL, created_at TEXT NOT NULL, revoked_tx_hash TEXT NOT NULL DEFAULT '', revoked_block_number INTEGER, revoked_log_index INTEGER, revoked_at TEXT NOT NULL DEFAULT '', PRIMARY KEY (agent_id, client_address, feedback_index));
+CREATE TABLE IF NOT EXISTS reputation_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, client_address TEXT NOT NULL, feedback_index INTEGER NOT NULL, responder TEXT NOT NULL, response_uri TEXT NOT NULL DEFAULT '', response_hash TEXT NOT NULL DEFAULT '', tx_hash TEXT NOT NULL, block_number INTEGER NOT NULL, log_index INTEGER NOT NULL, created_at TEXT NOT NULL, UNIQUE(tx_hash, log_index));
 CREATE TABLE IF NOT EXISTS erc8004_indexer_state (name TEXT PRIMARY KEY, last_block INTEGER NOT NULL, updated_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_reputation_agent_block ON reputation_feedback(agent_id, block_number, log_index);
 CREATE INDEX IF NOT EXISTS idx_reputation_agent_tag ON reputation_feedback(agent_id, tag1, tag2);
 CREATE INDEX IF NOT EXISTS idx_reputation_client ON reputation_feedback(client_address);
+DELETE FROM reputation_responses WHERE rowid NOT IN (SELECT min(rowid) FROM reputation_responses GROUP BY tx_hash, log_index);
 CREATE INDEX IF NOT EXISTS idx_reputation_responses_lookup ON reputation_responses(agent_id, client_address, feedback_index);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reputation_responses_event ON reputation_responses(tx_hash, log_index);
 """

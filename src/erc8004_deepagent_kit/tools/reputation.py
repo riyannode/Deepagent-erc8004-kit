@@ -50,6 +50,27 @@ def _writer_intent(sig: str, params: list) -> dict:
     return {"tx_hash": result.tx_hash, "explorer_url": f"{cfg.explorer_url}/tx/{result.tx_hash}", "wallet_address": Web3.to_checksum_address(wallet.address)}
 
 
+def _checksum_client_addresses(client_addresses: list[str] | None) -> list[str] | None:
+    if client_addresses is None:
+        return None
+    out: list[str] = []
+    for address in client_addresses:
+        if not Web3.is_address(address):
+            raise ValueError(f"invalid client address: {address}")
+        out.append(Web3.to_checksum_address(address))
+    return out
+
+
+def _assert_reputation_writer_allowed_for_agent(agent_id: str):
+    aid = _agent_id(agent_id)
+    cfg = load_config()
+    wallet = get_reputation_writer_wallet()
+    owner = IdentityRegistryClient(cfg.rpc_url, cfg.identity_registry).owner_of(aid)
+    if Web3.to_checksum_address(wallet.address) == Web3.to_checksum_address(owner):
+        raise PermissionError("REPUTATION_WRITER_WALLET_ADDRESS must not equal the target agent owner wallet")
+    return wallet
+
+
 @tool
 def get_reputation_summary(agent_id: str, client_addresses: list[str], tag1: str = "", tag2: str = "") -> dict:
     """Read ERC-8004 reputation summary using explicit trusted client addresses."""
@@ -62,7 +83,7 @@ def get_feedback_for_agent(agent_id: str, client_addresses: list[str] | None = N
     store = _store(); status = store.status()
     if status["state"] == "indexer_required":
         return {"agent_id": agent_id, "feedback_available": False, "feedback": [], "indexer_status": status}
-    rows = store.list_feedback(agent_id, client_addresses, tag1, tag2, include_revoked, min(int(limit), 100), int(offset))
+    rows = store.list_feedback(agent_id, _checksum_client_addresses(client_addresses), tag1, tag2, include_revoked, min(int(limit), 100), int(offset))
     return {"agent_id": agent_id, "feedback_available": True, "feedback": rows, "indexer_status": status}
 
 
@@ -107,10 +128,7 @@ def record_reputation_feedback(agent_id: str, value: int, value_decimals: int, t
     if not (-2**127 <= int(value) < 2**127): raise ValueError("value out of int128 range")
     if not (0 <= int(value_decimals) <= 18): raise ValueError("value_decimals must be between 0 and 18")
     _check_len("tag1", tag1, 128); _check_len("tag2", tag2, 128); _check_len("endpoint", endpoint, 2048); _check_len("feedback_uri", feedback_uri, 2048)
-    cfg = load_config(); wallet = get_reputation_writer_wallet()
-    owner = IdentityRegistryClient(cfg.rpc_url, cfg.identity_registry).owner_of(aid)
-    if Web3.to_checksum_address(wallet.address) == Web3.to_checksum_address(owner):
-        raise PermissionError("REPUTATION_WRITER_WALLET_ADDRESS must not equal the agent owner wallet")
+    _assert_reputation_writer_allowed_for_agent(aid)
     out = _writer_intent("giveFeedback(uint256,int128,uint8,string,string,string,string,bytes32)", [aid, str(int(value)), str(int(value_decimals)), tag1, tag2, endpoint, feedback_uri, _hash(feedback_hash)])
     return {"status": "feedback_recorded", "agent_id": aid, "value": int(value), "value_decimals": int(value_decimals), "tag1": tag1, "tag2": tag2, **out}
 
@@ -118,16 +136,20 @@ def record_reputation_feedback(agent_id: str, value: int, value_decimals: int, t
 @tool
 def revoke_reputation_feedback(agent_id: str, feedback_index: int) -> dict:
     """Policy-gated ERC-8004 revokeFeedback write through Circle DCW."""
+    aid = _agent_id(agent_id)
     if int(feedback_index) <= 0: raise ValueError("feedback_index must be > 0")
-    out = _writer_intent("revokeFeedback(uint256,uint64)", [_agent_id(agent_id), str(int(feedback_index))])
-    return {"status": "feedback_revoked", "agent_id": str(agent_id), "feedback_index": int(feedback_index), **out}
+    _assert_reputation_writer_allowed_for_agent(aid)
+    out = _writer_intent("revokeFeedback(uint256,uint64)", [aid, str(int(feedback_index))])
+    return {"status": "feedback_revoked", "agent_id": aid, "feedback_index": int(feedback_index), **out}
 
 
 @tool
 def append_reputation_response(agent_id: str, client_address: str, feedback_index: int, response_uri: str = "", response_hash: str = "") -> dict:
     """Policy-gated ERC-8004 appendResponse write through Circle DCW."""
+    aid = _agent_id(agent_id)
     client = Web3.to_checksum_address(client_address)
     if int(feedback_index) <= 0: raise ValueError("feedback_index must be > 0")
     _check_len("response_uri", response_uri, 2048)
-    out = _writer_intent("appendResponse(uint256,address,uint64,string,bytes32)", [_agent_id(agent_id), client, str(int(feedback_index)), response_uri, _hash(response_hash)])
-    return {"status": "response_appended", "agent_id": str(agent_id), "client_address": client, "feedback_index": int(feedback_index), **out}
+    _assert_reputation_writer_allowed_for_agent(aid)
+    out = _writer_intent("appendResponse(uint256,address,uint64,string,bytes32)", [aid, client, str(int(feedback_index)), response_uri, _hash(response_hash)])
+    return {"status": "response_appended", "agent_id": aid, "client_address": client, "feedback_index": int(feedback_index), **out}

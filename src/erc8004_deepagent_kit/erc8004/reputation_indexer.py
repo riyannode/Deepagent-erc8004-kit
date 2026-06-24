@@ -58,7 +58,7 @@ class ReputationIndexer:
                 a = event["args"]
                 self.store.insert_response({"agent_id": str(a["agentId"]), "client_address": Web3.to_checksum_address(a["clientAddress"]), "feedback_index": int(a["feedbackIndex"]), "responder": Web3.to_checksum_address(a["responder"]), "response_uri": a.get("responseURI", ""), "response_hash": _hex(a.get("responseHash", "")), "tx_hash": Web3.to_hex(event["transactionHash"]), "block_number": int(event["blockNumber"]), "log_index": int(event["logIndex"])})
                 counts["responses"] += 1
-            self.store.set_state(STATE_KEY, chunk_to)
+            self.store.advance_state(STATE_KEY, chunk_to)
             counts["chunks"] += 1
             cursor = chunk_to + 1
         return {"ok": True, "from_block": start, "to_block": end, "latest_block": end, **counts, "last_indexed_block": end}
