@@ -18,6 +18,25 @@ def _env(name: str, default: str | None = None) -> str | None:
     return v
 
 
+_PLACEHOLDER_VALUES = {"", "***", "REPLACE_ME", "CHANGEME", "CHANGE_ME", "YOUR_API_KEY_HERE", "YOUR_KEY_HERE", "YOUR_SECRET_HERE", "TODO"}
+
+
+def _is_placeholder_secret(value: str | None) -> bool:
+    if value is None:
+        return True
+    normalized = value.strip()
+    if not normalized:
+        return True
+    upper = normalized.upper().replace("-", "_").replace(" ", "_")
+    return upper in _PLACEHOLDER_VALUES or upper.startswith("YOUR_") or upper.startswith("REPLACE_")
+
+
+def _env_secret(name: str) -> str | None:
+    value = _env(name)
+    if _is_placeholder_secret(value):
+        return None
+    return value
+
 def _env_bool(name: str, default: bool = False) -> bool:
     v = _env(name)
     if v is None:
@@ -223,8 +242,8 @@ def load_config(env_file: str | None = None) -> KitConfig:
         validation_registry=validation_registry,
         from_block=_env_int("ERC8004_FROM_BLOCK", 41338000, min_value=0),
         event_scan_block_range=_env_int("EVENT_SCAN_BLOCK_RANGE", 10000, min_value=1, max_value=10000),
-        circle_api_key=_env("CIRCLE_API_KEY"),
-        circle_entity_secret=_env("CIRCLE_ENTITY_SECRET"),
+        circle_api_key=_env_secret("CIRCLE_API_KEY"),
+        circle_entity_secret=_env_secret("CIRCLE_ENTITY_SECRET"),
         dcw_wallet_address=wallet,
         identity_store_path=Path(_env("IDENTITY_STORE_PATH", "/data/erc8004_identities.sqlite3") or "/data/erc8004_identities.sqlite3"),
         reputation_store_path=Path(_env("REPUTATION_STORE_PATH", "/data/erc8004_reputation.sqlite3") or "/data/erc8004_reputation.sqlite3"),

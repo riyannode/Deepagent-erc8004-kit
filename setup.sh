@@ -62,6 +62,30 @@ PYENV
   echo ""
 else
   echo "✅ .env already exists"
+  python3 - <<'PYENV'
+from pathlib import Path
+path = Path('.env')
+text = path.read_text()
+replacements = {
+    'IDENTITY_STORE_PATH': './data/erc8004_identities.sqlite3',
+    'REPUTATION_STORE_PATH': './data/erc8004_reputation.sqlite3',
+    'X402_LEDGER_PATH': './data/x402_spend_ledger.sqlite3',
+    'CIRCLE_EXECUTION_STATE_DIR': './data/circle_executions',
+}
+seen = {}
+for line in text.splitlines():
+    if '=' in line and not line.startswith('#'):
+        key, value = line.split('=', 1)
+        seen[key] = value.strip()
+missing = [key for key in replacements if not seen.get(key)]
+if missing:
+    with path.open('a') as f:
+        f.write('\n# Local-safe paths added by setup.sh\n')
+        for key in missing:
+            f.write(f'{key}={replacements[key]}\n')
+if any(seen.get(key, '').startswith('/data') for key in replacements):
+    print('⚠️  Local setup detected /data paths. Docker can use /data, but local installs should use ./data unless /data is writable.')
+PYENV
 fi
 
 # --- Create venv ---

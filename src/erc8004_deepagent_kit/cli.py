@@ -10,7 +10,7 @@ from typing import Optional
 import typer
 from web3 import Web3
 
-from .config import load_config
+from .config import _is_placeholder_secret, load_config
 from .erc8004.registry_clients import IdentityRegistryClient, ReputationRegistryClient
 from .store.sqlite_store import SqliteIdentityStore
 from .erc8004.reputation_indexer import ReputationIndexer
@@ -72,6 +72,8 @@ def doctor() -> None:
         {"name": "dcw_wallet_address_present", "ok": bool(cfg.dcw_wallet_address), "required": True},
         {"name": "circle_api_key_present", "ok": bool(cfg.circle_api_key), "required": True},
         {"name": "circle_entity_secret_present", "ok": bool(cfg.circle_entity_secret), "required": True},
+        {"name": "anthropic_api_key_present", "ok": not _is_placeholder_secret(os.getenv("ANTHROPIC_API_KEY")), "required": True},
+        {"name": "circle_credentials_live_checked", "ok": True, "value": False, "note": "presence checked only; run a live DCW wallet/status check before production", "required": False},
         {"name": "identity_store_parent_exists", "ok": cfg.identity_store_path.parent.exists() or cfg.identity_store_path.parent == Path('/data'), "value": str(cfg.identity_store_path), "required": True},
         {"name": "circle_state_dir_parent_exists", "ok": cfg.circle_execution_state_dir.parent.exists() or cfg.circle_execution_state_dir.parent == Path('/data'), "value": str(cfg.circle_execution_state_dir), "required": True},
         _safe_check("rpc_chain_id", lambda: {"ok": int(client.w3.eth.chain_id) == cfg.chain_id, "value": int(client.w3.eth.chain_id), "expected": cfg.chain_id}),
