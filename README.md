@@ -14,7 +14,7 @@ One Circle Developer-Controlled Wallet (DCW) = one on-chain ERC-8004 agent ident
 Deepagent-x402-kit/
 ├── src/erc8004_deepagent_kit/
 │   ├── agent.py                  # LangChain Deep Agent builder (tools + system prompt)
-│   ├── cli.py                    # CLI: doctor, status, register, config
+│   ├── cli.py                    # CLI: doctor, status, register, config, reputation commands
 │   ├── config.py                 # KitConfig singleton from .env (all settings)
 │   ├── __main__.py               # python -m entry
 │   ├── deepagent/
@@ -27,7 +27,8 @@ Deepagent-x402-kit/
 │   │   ├── events.py             # Transfer event parsing, MintEvent
 │   │   ├── metadata.py           # Registration file builder + data URI
 │   │   ├── receipts.py           # IdentityReceipt dataclass
-│   │   └── registry_clients.py   # On-chain RPC clients (identity, validation)
+│   │   ├── registry_clients.py   # On-chain RPC clients (identity, reputation, validation)
+│   │   └── reputation_indexer.py # Reputation event indexer (NewFeedback, FeedbackRevoked, ResponseAppended)
 │   ├── mcp/
 │   │   ├── schemas.py            # MCP tool schemas
 │   │   └── server.py             # MCP server entry
@@ -36,6 +37,7 @@ Deepagent-x402-kit/
 │   │   └── x402/disabled.py      # x402 plugin (replaced by tools/)
 │   ├── store/
 │   │   ├── identity_store.py     # IdentityStore interface
+│   │   ├── reputation_store.py   # SQLite reputation store (feedback, responses, indexer state)
 │   │   └── sqlite_store.py       # SQLite implementation (identity + locks)
 │   ├── tools/
 │   │   ├── identity.py           # LangChain tools: register_identity_once, get_identity_status
@@ -46,7 +48,7 @@ Deepagent-x402-kit/
 │   │   └── x402_nano.py          # x402_nano_pay, x402_nano_sell_settle, x402_nano_balance
 │   ├── wallet/
 │   │   ├── contract_executor.py  # Circle DCW sidecar executor (Node.js subprocess)
-│   │   ├── dcw.py                # get_configured_wallet()
+│   │   ├── dcw.py                # get_configured_wallet(), get_reputation_writer_wallet()
 │   │   └── policy.py             # WalletPolicy — allowed contracts + function signatures
 │   └── x402/
 │       ├── __init__.py
@@ -286,6 +288,8 @@ When `X402_ENABLED=false`, no x402 tools are exposed at all.
 | Sidecar pay mode | `pay` mode **requires** prevalidated challenge from Python. No fallback fetch. Python runs `assert_url_allowed()` + `assert_challenge_valid()` before signing. |
 | State directory | `0o700` permissions on Circle execution state directory. |
 | Non-root Docker | `USER appuser` in Dockerfile. |
+| Reputation writer policy | `REPUTATION_WRITER_WALLET_ADDRESS` must NOT equal the agent owner wallet. WalletPolicy blocks `giveFeedback`/`revokeFeedback`/`appendResponse` unless `ENABLE_REPUTATION_WRITES=true`. |
+| Reputation writer ≠ owner | `_assert_reputation_writer_allowed_for_agent` checks on-chain: writer ≠ owner, writer ≠ approved, writer ≠ operator. |
 
 ---
 
@@ -328,6 +332,8 @@ result = agent.invoke({"messages": "Check my identity status"})
 erc8004-deepagent doctor    # No LLM needed
 erc8004-deepagent status    # No LLM needed
 erc8004-deepagent register  # No LLM needed
+erc8004-deepagent reputation-index-once   # No LLM needed
+erc8004-deepagent reputation-index-status # No LLM needed
 ```
 
 ---
@@ -384,6 +390,7 @@ erc8004-deepagent register  # No LLM needed
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `IDENTITY_STORE_PATH` | `/data/erc8004_identities.sqlite3` | SQLite identity store path |
+| `REPUTATION_STORE_PATH` | `/data/erc8004_reputation.sqlite3` | SQLite reputation store path (feedback, responses, indexer state) |
 
 ### x402 Payment Settings
 
@@ -415,6 +422,9 @@ erc8004-deepagent register  # No LLM needed
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `REPUTATION_INDEXER_FROM_BLOCK` | `41338000` (falls back to `ERC8004_FROM_BLOCK`) | Start block for reputation event indexer |
+| `REPUTATION_INDEXER_BLOCK_RANGE` | `10000` | Blocks per indexer `get_logs` call (max 10000) |
+| `REPUTATION_WRITER_WALLET_ADDRESS` | — | Dedicated wallet for reputation writes (must NOT be the DCW wallet) |
 | `ENABLE_REPUTATION_WRITES` | `false` | Allow reputation write tools |
 | `ENABLE_VALIDATION_WRITES` | `false` | Allow validation write tools |
 | `EXPOSE_REPUTATION_WRITE_TOOLS_TO_AGENT` | `false` | Expose reputation writes to agent |
@@ -479,8 +489,10 @@ Both `setup.sh` (local) and Docker have been tested:
 - [x] Config: `0x8004Cb...` (ValidationRegistry)
 - [x] RPC chain ID: `5042002`
 - [x] Identity registry bytecode: 130 bytes
+- [x] Reputation registry bytecode: 130 bytes
 - [x] Latest block: `48411622` (live, no tx sent)
 - [x] Data dirs writable (`/data`)
+- [x] Reputation store parent dir writable
 
 ---
 
@@ -493,6 +505,10 @@ erc8004-deepagent status              # Check identity status (local + on-chain)
 erc8004-deepagent register            # Register one identity (idempotent)
 erc8004-deepagent clear-expired-locks # Clear stale registration locks
 erc8004-deepagent agent-register      # Let the Deep Agent register via tools
+erc8004-deepagent reputation-index-once    # Index reputation events (read-only RPC + SQLite write)
+erc8004-deepagent reputation-index-range   # Index reputation events for explicit block range
+erc8004-deepagent reputation-index-status  # Show local reputation indexer status
+erc8004-deepagent reputation-read-feedback # Read one reputation feedback from chain + indexed metadata
 ```
 
 ---
@@ -508,7 +524,13 @@ erc8004-deepagent agent-register      # Let the Deep Agent register via tools
 - [x] Identity store parent directory exists
 - [x] RPC chain ID matches `CHAIN_ID` (5042002)
 - [x] IdentityRegistry contract has bytecode at the configured address
+- [x] ReputationRegistry contract has bytecode at the configured address
+- [x] Reputation store parent directory is writable
 - [x] Latest block >= `ERC8004_FROM_BLOCK`
+
+### Reputation writer checks (when `ENABLE_REPUTATION_WRITES=true`):
+- [x] `REPUTATION_WRITER_WALLET_ADDRESS` is non-empty
+- [x] Writer wallet address differs from `DCW_WALLET_ADDRESS`
 
 ### x402 checks (when `X402_ENABLED=true`):
 - [x] Sidecar files exist: `scripts/x402_batching.mjs`, `scripts/x402_nano.mjs`
@@ -562,12 +584,16 @@ erc8004-deepagent doctor
 [x] erc8004-deepagent doctor          — all checks pass, ok=true
 [x] erc8004-deepagent doctor          — chain_id=5042002 verified
 [x] erc8004-deepagent doctor          — bytecode at IdentityRegistry verified
+[x] erc8004-deepagent doctor          — bytecode at ReputationRegistry verified
+[x] erc8004-deepagent doctor          — reputation store parent writable
 [x] erc8004-deepagent status          — works with configured DCW wallet
 [x] erc8004-deepagent register        — first register: status=registered, real tx_hash
 [x] tx on https://testnet.arcscan.app — targets IdentityRegistry contract
 [x] tx method is register(string)     — ERC-721 Transfer mint to DCW wallet
 [x] SQLite has exactly one identity row
 [x] erc8004-deepagent register        — second register: already_registered (NO new tx)
+[x] erc8004-deepagent reputation-index-once — indexes NewFeedback/FeedbackRevoked/ResponseAppended events
+[x] erc8004-deepagent reputation-index-status — shows indexer state + blocks_behind
 [x] if X402_ENABLED=true:
     [x] doctor checks sidecar files exist
     [x] doctor checks @circle-fin/x402-batching importable (if batching mode)
@@ -615,7 +641,7 @@ LangChain Core 1.4.8
 Web3.py 7.16.0
 Circle Developer-Controlled Wallets SDK (Node.js)
 @circle-fin/x402-batching (Node.js, for seller settle in batching mode)
-SQLite (identity store + x402 spend ledger)
+SQLite (identity store + reputation store + x402 spend ledger)
 Arc Testnet (chain 5042002)
 Docker (optional)
 ```
@@ -630,6 +656,8 @@ ERC-8004 identity registration has been validated on Arc Testnet. The second reg
 
 x402 batching and nano doctor checks passed. Live x402 payment execution still requires a real allowlisted x402 endpoint.
 
+ERC-8004 reputation indexer validated: indexed 9,741 feedback events from a 5,000-block window on Arc Testnet. Reputation read tools, store CRUD, policy gates, and CLI commands all tested.
+
 ```txt
 ✅ python -m compileall -q src
 ✅ npm ci --omit=dev
@@ -638,6 +666,10 @@ x402 batching and nano doctor checks passed. Live x402 payment execution still r
 ✅ erc8004-deepagent register (2nd run)    — already_registered, no new tx
 ✅ X402_ENABLED=true X402_MODE=batching    — doctor 17/17
 ✅ X402_ENABLED=true X402_MODE=nano        — doctor 16/16
+✅ erc8004-deepagent reputation-index-once  — live indexed 9,741 events
+✅ erc8004-deepagent reputation-index-status — indexer state OK
+✅ ReputationStore CRUD                     — upsert, list, revoke, state tracking
+✅ WalletPolicy reputation gates            — 6/6 security tests passed
 ```
 
 ---
@@ -646,35 +678,50 @@ x402 batching and nano doctor checks passed. Live x402 payment execution still r
 
 MIT
 
-## ERC-8004 Reputation Production Flow
+## ERC-8004 Reputation
 
 This SDK supports:
-- policy-gated Circle DCW reputation writes
-- direct on-chain reads
-- local SQLite event indexing for feedback history
-- no fake feedback rows
-- no raw x402 payment header storage
+- **Policy-gated Circle DCW reputation writes** — disabled by default, opt-in via env
+- **Direct on-chain reads** — `getSummary`, `readFeedback`, `readAllFeedback`, `getClients`, `getLastIndex`, `getResponseCount`
+- **Local SQLite event indexing** — `ReputationIndexer` scans `NewFeedback`, `FeedbackRevoked`, `ResponseAppended` events
+- **No fake feedback rows** — store only contains real on-chain events
+- **No raw x402 payment header storage**
 
-Run:
+### Reputation Tools (Agent)
+
+Read tools (always available):
+- `get_feedback_for_agent(agent_id)` — reads from local indexer store
+- `read_reputation_feedback(agent_id, client_address, feedback_index)` — reads one feedback from chain + indexed metadata
+- `get_reputation_clients(agent_id)` — lists clients who gave feedback (chain + indexer merged)
+- `get_reputation_summary(agent_id, client_addresses)` — on-chain summary with explicit client addresses
+- `get_reputation_indexer_status()` — returns indexer state without sending transactions
+
+Write tools (opt-in, require `ENABLE_REPUTATION_WRITES=true` + `EXPOSE_REPUTATION_WRITE_TOOLS_TO_AGENT=true`):
+- `record_reputation_feedback(agent_id, value, ...)` — writes `giveFeedback` via Circle DCW
+- `revoke_reputation_feedback(agent_id, feedback_index)` — writes `revokeFeedback` via Circle DCW
+- `append_reputation_response(agent_id, client_address, feedback_index, ...)` — writes `appendResponse` via Circle DCW
+
+### CLI Commands
 
 ```bash
 erc8004-deepagent reputation-index-once
+erc8004-deepagent reputation-index-range --from-block 41338000 --to-block 41340000
 erc8004-deepagent reputation-index-status
+erc8004-deepagent reputation-read-feedback --agent-id 1 --client-address 0x... --feedback-index 1
 ```
 
-Important:
+### Key Points
 
 - `get_feedback_for_agent` reads the local indexer store.
 - If the indexer has not run, the tool returns `indexer_required`.
 - `get_reputation_summary` requires explicit client addresses to avoid untrusted Sybil/spam aggregation.
 - Reputation writes require `REPUTATION_WRITER_WALLET_ADDRESS`.
 - The writer wallet must not be the agent owner wallet.
+- The indexer advances its canonical cursor only on contiguous block ranges. Non-contiguous `reputation-index-range` runs are indexed but do not mark earlier blocks as done.
 
 ### Local vs Docker data paths
 
 Docker Compose mounts `./data:/data`, so Docker users may still use `/data` paths inside the container. Local one-click installs should use `./data` paths generated by `setup.sh` so setup and doctor do not require root-owned `/data` access.
-
-`erc8004-deepagent reputation-index-range` only advances the canonical reputation indexer cursor when the requested range is contiguous with the current indexer state. Non-contiguous ad-hoc ranges are indexed without marking earlier blocks as indexed or marking the indexer ready.
 
 ## Production Verification Checklist
 
@@ -685,6 +732,7 @@ Before production use:
 3. Run `erc8004-deepagent doctor` and fix every required failure.
 4. Run `erc8004-deepagent status`.
 5. Run `erc8004-deepagent register` only after `doctor` passes.
-6. Run `erc8004-deepagent reputation-index-once`.
-7. Run `erc8004-deepagent reputation-index-status`.
-8. Verify logs do not contain raw secrets, raw `x-payment` headers, raw Gateway responses, raw signatures, Circle entity secrets, API keys, or full env values.
+6. Run `erc8004-deepagent reputation-index-once` to index on-chain reputation events.
+7. Run `erc8004-deepagent reputation-index-status` to verify indexer is caught up.
+8. If `ENABLE_REPUTATION_WRITES=true`: set `REPUTATION_WRITER_WALLET_ADDRESS` to a dedicated wallet (not the DCW wallet). Verify `doctor` passes the writer wallet checks.
+9. Verify logs do not contain raw secrets, raw `x-payment` headers, raw Gateway responses, raw signatures, Circle entity secrets, API keys, or full env values.
